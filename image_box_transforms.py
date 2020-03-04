@@ -22,8 +22,8 @@ class _Transform_BOX(object):
         :param boxes: a box is [x, y, w, h, ...], at least len(box) >= 4
         :return:
         """
-        assert len(boxes.shape) == 2 and boxes.shape[1] >= 4
-        boxes = np.array(boxes, dtype=np.float32)
+        # assert len(boxes.shape) == 2 and boxes.shape[1] >= 4
+        # boxes = np.array(boxes, dtype=np.float32)
         raise NotImplementedError()
 
     def __repr__(self):
@@ -31,36 +31,43 @@ class _Transform_BOX(object):
 
 
 def transform_boxes(m1, boxes):
-    xmins, ymins, ws, hs = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
-    xmaxs = xmins + ws + 1
-    ymaxs = ymins + hs + 1
-    points = list()
-    for ps in product([xmins, xmaxs], [ymins, ymaxs], [1, ]):
-        points.append(np.dot(m1, np.array(ps)))
-    points = np.vstack(points).astype(np.int32)
-    return cv2.boundingRect(points)
+    for box in boxes:
+        xmins, ymins, ws, hs = box[:4]
+        xmaxs = xmins + ws + 1
+        ymaxs = ymins + hs + 1
+        points = list()
+        for ps in product([xmins, xmaxs], [ymins, ymaxs], [1, ]):
+            points.append(np.dot(m1, np.array(ps, dtype=np.int32)))
+        points = np.stack(points, axis=0).astype(np.int32)
+        box[:4] = cv2.boundingRect(points)
+
+    return boxes
 
 
 def hFlip(img, boxes):
-    return img[:, ::-1], img.shape[1] - boxes[:, 0] - 1
+    boxes[:, 0] = img.shape[1] - boxes[:, 0] - 1
+    boxes[:, 2] = - boxes[:, 2]
+    return img[:, ::-1], boxes
 
 
 def vFlip(img, boxes):
-    return img[::-1, :], img.shape[0] - boxes[:, 1] - 1
+    boxes[:, 1] = img.shape[0] - boxes[:, 1] - 1
+    boxes[:, 3] = - boxes[:, 3]
+    return img[::-1, :], boxes
 
 
 def rotate90(img, boxes):
-    m1 = cv2.getRotationMatrix2D([img.shape[0] // 2, img.shape[1] // 2], 90, 1)
+    m1 = cv2.getRotationMatrix2D((img.shape[1] // 2, img.shape[0] // 2), 90, 1)
     return cv2.warpAffine(img, m1, dsize=(img.shape[1], img.shape[0])), transform_boxes(m1, boxes)
 
 
 def rotate180(img, boxes):
-    m1 = cv2.getRotationMatrix2D([img.shape[0] // 2, img.shape[1] // 2], 180, 1)
+    m1 = cv2.getRotationMatrix2D((img.shape[1] // 2, img.shape[0] // 2), 180, 1)
     return cv2.warpAffine(img, m1, dsize=(img.shape[1], img.shape[0])), transform_boxes(m1, boxes)
 
 
 def rotate270(img, boxes):
-    m1 = cv2.getRotationMatrix2D([img.shape[0] // 2, img.shape[1] // 2], -90, 1)
+    m1 = cv2.getRotationMatrix2D((img.shape[1] // 2, img.shape[0] // 2), -90, 1)
     return cv2.warpAffine(img, m1, dsize=(img.shape[1], img.shape[0])), transform_boxes(m1, boxes)
 
 
@@ -134,7 +141,7 @@ class Flip_Rotate(_Transform_BOX):
         super().__init__()
 
     def __call__(self, img, boxes):
-        return np.random.choice(_method2)(np.random.choice(_method1)(img, boxes))
+        return np.random.choice(_method2)(*np.random.choice(_method1)(img, boxes))
 
     def __repr__(self):
         return self.__class__.__name__
@@ -150,9 +157,9 @@ class WarpAffine(_Transform_BOX):
         self.range = (low_degree, high_degree)
 
     def __call__(self, img, boxes):
-        angle = np.random.random() * (self.range[1] - self.range[0]) + self.range[0]
-        m1 = cv2.getRotationMatrix2D((img.shape[0] // 2, img.shape[1] // 2), angle, scale=1)
-        return cv2.warpAffine(img, m1, img.shape[:2]), transform_boxes(m1, boxes)
+        angle = np.random.random() * (self.range[1] - self.range[0]) - self.range[0]
+        m1 = cv2.getRotationMatrix2D((img.shape[1] // 2, img.shape[0] // 2), angle, scale=1)
+        return cv2.warpAffine(img, m1, img.shape[:2][::-1]), transform_boxes(m1, boxes)
 
     def __repr__(self):
         return self.__class__.__name__
@@ -177,8 +184,8 @@ class Translate(object):
             translate_x = self.translate_x * width
             translate_y = self.translate_y * height
 
-        getTranslateMatrix = lambda y, x: np.array([[1, 0, y], [0, 1, x]], dtype=np.float32)
-        m1 = getTranslateMatrix(translate_y, translate_x)
+        getTranslateMatrix = lambda x, y: np.array([[1, 0, x], [0, 1, y]], dtype=np.float32)
+        m1 = getTranslateMatrix(translate_x, translate_y)
         # translate the image
         return cv2.warpAffine(img, m1, (width, height)), transform_boxes(m1, boxes)
 
@@ -191,9 +198,13 @@ class Resize(_Transform_BOX):
 
     def __call__(self, img, boxes):
         height_scale, width_scale = self.height / img.shape[0], self.width / img.shape[1]
-        boxes[:, 0], boxes[:, 2] = int(boxes[:, 0] * width_scale), int(boxes[:, 2] * width_scale)
-        boxes[:, 1], boxes[:, 3] = int(boxes[:, 1] * height_scale), int(boxes[:, 3] * height_scale)
-        return cv2.resize(img, None, fx=width_scale, fy=height_scale), boxes
+        boxes = boxes.astype(np.float32)
+
+        # boxes[:, 0], boxes[:, 2] = (boxes[:, 0] * width_scale), (boxes[:, 2] * width_scale)
+        # boxes[:, 1], boxes[:, 3] = (boxes[:, 1] * height_scale), (boxes[:, 3] * height_scale)
+        boxes[:, [0, 2]] *= width_scale
+        boxes[:, [1, 3]] *= height_scale
+        return cv2.resize(img, None, fx=width_scale, fy=height_scale), boxes.astype(np.int32)
 
     def __repr__(self):
         return self.__class__.__name__
@@ -207,6 +218,7 @@ class Fixed_Ratio_Resize(_Transform_BOX):
 
     def __call__(self, img, boxes):
         img_height, img_width = img.shape[:2]
+        boxes = boxes.astype(np.float32)
         scale_height, scale_width = self.height / img_height, self.width / img_width
         if len(img.shape) == 3:
             resized_img = np.zeros((self.height, self.width, img.shape[2]), dtype=img.dtype)
@@ -217,24 +229,21 @@ class Fixed_Ratio_Resize(_Transform_BOX):
             translate_x = np.random.randint(0, img_width - new_sides[1] + 1)
             resized_img[:, translate_x:translate_x + new_sides[1]] = cv2.resize(img, None, fx=scale_height,
                                                                                 fy=scale_height)
-            boxes[:, 0], boxes[:, 2] = int(boxes[:, 0] * scale_height), int(boxes[:, 2] * scale_height)
-            boxes[:, 1], boxes[:, 3] = int(boxes[:, 1] * scale_height), int(boxes[:, 3] * scale_height)
+            boxes[:4] *= scale_height
             boxes[:, 0] += translate_x
         elif scale_height > scale_width:
             new_sides = (int(np.round(scale_width * img_height)), self.width)
             translate_y = np.random.randint(0, img_height - new_sides[0] + 1)
             resized_img[translate_y:translate_y + new_sides[0], :] = cv2.resize(img, None, fx=scale_width,
                                                                                 fy=scale_width)  # resize: (width, height)
-            boxes[:, 0], boxes[:, 2] = int(boxes[:, 0] * scale_width), int(boxes[:, 2] * scale_width)
-            boxes[:, 1], boxes[:, 3] = int(boxes[:, 1] * scale_width), int(boxes[:, 3] * scale_width)
+            boxes[:4] *= scale_width
             boxes[:, 1] += translate_y
         else:
             scale = self.height / img_height
             resized_img = cv2.resize(img, None, fx=scale, fy=scale)
-            boxes[:, 0], boxes[:, 2] = int(boxes[:, 0] * scale), int(boxes[:, 2] * scale)
-            boxes[:, 1], boxes[:, 3] = int(boxes[:, 1] * scale), int(boxes[:, 3] * scale)
+            boxes[:4] *= scale
 
-        return resized_img
+        return resized_img, boxes.astype(np.int32)
 
     def __repr__(self):
         return self.__class__.__name__

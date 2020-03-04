@@ -125,7 +125,7 @@ class WarpAffine(_Transform):
     def __call__(self, img):
         angle = np.random.random() * (self.range[1] - self.range[0]) + self.range[0]
         m1 = cv2.getRotationMatrix2D((img.shape[0] // 2, img.shape[1] // 2), angle, scale=1)
-        return cv2.warpAffine(img, m1, img.shape[:2])
+        return cv2.warpAffine(img, m1, img.shape[:2][::-1])
 
     def __repr__(self):
         return self.__class__.__name__
@@ -150,10 +150,10 @@ class Translate(object):
             translate_x = self.translate_x * width
             translate_y = self.translate_y * height
 
-        getTranslateMatrix = lambda y, x: np.array([[1, 0, y], [0, 1, x]], dtype=np.float32)
+        getTranslateMatrix = lambda x, y: np.array([[1, 0, x], [0, 1, y]], dtype=np.float32)
 
         # translate the image
-        return cv2.warpAffine(img, getTranslateMatrix(translate_y, translate_x), (width, height))
+        return cv2.warpAffine(img, getTranslateMatrix(translate_x, translate_y), (width, height))
 
 
 class Resize(_Transform):
@@ -163,7 +163,7 @@ class Resize(_Transform):
         self.width = width
 
     def __call__(self, img):
-        return cv2.resize(img, (self.height, self.width))
+        return cv2.resize(img, (self.width, self.height))
 
     def __repr__(self):
         return self.__class__.__name__
@@ -192,7 +192,7 @@ class Fixed_Ratio_Resize(_Transform):
             resized_img[translate_y:translate_y + new_sides[0], :] = cv2.resize(img, new_sides[
                                                                                      ::-1])  # resize: (width, height)
         else:
-            resized_img = cv2.resize(img, (self.height, self.width))
+            resized_img = cv2.resize(img, (self.width, self.height))
         return resized_img
 
     def __repr__(self):

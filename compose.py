@@ -39,21 +39,21 @@ class Compose4Image(_Compose):
 
 
 class Compose4Image_Box(_Compose):
-    def __call__(self, image, boxes):
+    def __call__(self, img, boxes):
         for t in self.transforms:
             img, boxes = t(img, boxes)
         return img, boxes
 
 
 class Compose4Image_Seg(_Compose):
-    def __call__(self, image, segs):
+    def __call__(self, img, segs):
         for t in self.transforms:
             img, segs = t(img, segs)
         return img, segs
 
 
 class Compose4Image_Point(_Compose):
-    def __call__(self, image, points):
+    def __call__(self, img, points):
         for t in self.transforms:
             img, points = t(img, points)
         return img, points
